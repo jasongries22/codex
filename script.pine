@@ -9,19 +9,25 @@ showBackground = input.bool(true, "Show Background Color")
 showLines = input.bool(true, "Show High/Low Lines")
 
 // === SESSION DEFINITIONS ===
-preMarketSession = "0800-1330:23456"
-regularSession = "1330-2000:23456" 
-postMarketSession = "2000-0800:23456"
+preMarketSession  = "0800-1330:23456"
+regularSession    = "1330-2000:23456"
+postMarketSess1   = "2000-2359:23456"     // first part before midnight
+postMarketSess2   = "0000-0800:34567"     // second part after midnight
 
 // === SESSION CONDITIONS ===
 inPreMarket = not na(time(timeframe.period, preMarketSession))
 inRegular = not na(time(timeframe.period, regularSession))
-inPostMarket = not na(time(timeframe.period, postMarketSession))
+inPostMarket  = not na(time(timeframe.period, postMarketSess1)) or
+                not na(time(timeframe.period, postMarketSess2))
 
 // === BACKGROUND COLORS ===
 bgcolor(showBackground and inPreMarket ? color.new(color.yellow, 90) : na)
 bgcolor(showBackground and inRegular ? color.new(color.green, 90) : na)
 bgcolor(showBackground and inPostMarket ? color.new(color.blue, 90) : na)
+
+// Number of bars to project lines into the future (approx. post-market length)
+barsToEnd = int(math.round(12 * 3600 / timeframe.in_seconds(timeframe.period)))
+lineLife   = 500
 
 // === TRACKING VARIABLES ===
 var float preHigh = na
@@ -44,6 +50,20 @@ var line preHighLine = na
 var line preLowLine = na
 var line regHighLine = na
 var line regLowLine = na
+
+// --- remove old lines after a certain lifetime ---
+if not na(preHighLine) and bar_index - line.get_x1(preHighLine) > lineLife
+    line.delete(preHighLine)
+    preHighLine := na
+if not na(preLowLine) and bar_index - line.get_x1(preLowLine) > lineLife
+    line.delete(preLowLine)
+    preLowLine := na
+if not na(regHighLine) and bar_index - line.get_x1(regHighLine) > lineLife
+    line.delete(regHighLine)
+    regHighLine := na
+if not na(regLowLine) and bar_index - line.get_x1(regLowLine) > lineLife
+    line.delete(regLowLine)
+    regLowLine := na
 
 // === SESSION TRANSITIONS ===
 preMarketStart = inPreMarket and not inPreMarket[1]
@@ -104,7 +124,7 @@ if inPostMarket
 // === LINE DRAWING ===
 // At the end of regular session - draw pre-market and regular lines (WITHOUT labels)
 if regularEnd and showLines
-    futureBar = bar_index + 150  // Estimate for end of post-market
+    futureBar = bar_index + barsToEnd
     
     // Pre-market lines
     if not na(preHigh) and not na(preHighBar)
@@ -138,20 +158,19 @@ if postMarketEnd and showLines
     if not na(postLow) and not na(postLowBar)
         line.new(postLowBar, postLow, realEndBar, postLow, color=color.blue, width=2)
     
-    // Draw ALL labels at the end
-    labelBar = realEndBar
-    if not na(preHigh)
-        label.new(labelBar, preHigh, "Premarket High", style=label.style_label_left, color=color.yellow, textcolor=color.black, size=size.small)
-    if not na(preLow)
-        label.new(labelBar, preLow, "Premarket Low", style=label.style_label_left, color=color.orange, textcolor=color.black, size=size.small)
-    if not na(regHigh)
-        label.new(labelBar, regHigh, "Market High", style=label.style_label_left, color=color.green, textcolor=color.white, size=size.small)
-    if not na(regLow)
-        label.new(labelBar, regLow, "Market Low", style=label.style_label_left, color=color.red, textcolor=color.white, size=size.small)
-    if not na(postHigh)
-        label.new(labelBar, postHigh, "Postmarket High", style=label.style_label_left, color=color.purple, textcolor=color.white, size=size.small)
-    if not na(postLow)
-        label.new(labelBar, postLow, "Postmarket Low", style=label.style_label_left, color=color.blue, textcolor=color.white, size=size.small)
+    // Draw ALL labels at the end near the line endpoints
+    if not na(preHighLine)
+        label.new(line.get_x2(preHighLine), preHigh, "Premarket High", style=label.style_label_left, color=color.yellow, textcolor=color.black, size=size.small)
+    if not na(preLowLine)
+        label.new(line.get_x2(preLowLine), preLow, "Premarket Low", style=label.style_label_left, color=color.orange, textcolor=color.black, size=size.small)
+    if not na(regHighLine)
+        label.new(line.get_x2(regHighLine), regHigh, "Market High", style=label.style_label_left, color=color.green, textcolor=color.white, size=size.small)
+    if not na(regLowLine)
+        label.new(line.get_x2(regLowLine), regLow, "Market Low", style=label.style_label_left, color=color.red, textcolor=color.white, size=size.small)
+    if not na(postHigh) and not na(postHighBar)
+        label.new(realEndBar, postHigh, "Postmarket High", style=label.style_label_left, color=color.purple, textcolor=color.white, size=size.small)
+    if not na(postLow) and not na(postLowBar)
+        label.new(realEndBar, postLow, "Postmarket Low", style=label.style_label_left, color=color.blue, textcolor=color.white, size=size.small)
     
     // Reset line variables after drawing
     preHighLine := na
@@ -181,20 +200,19 @@ if preMarketStart and showLines
         if not na(postLow) and not na(postLowBar)
             line.new(postLowBar, postLow, realEndBar, postLow, color=color.blue, width=2)
         
-        // Draw ALL labels for previous day
-        labelBar = realEndBar
-        if not na(preHigh)
-            label.new(labelBar, preHigh, "Premarket High", style=label.style_label_left, color=color.yellow, textcolor=color.black, size=size.small)
-        if not na(preLow)
-            label.new(labelBar, preLow, "Premarket Low", style=label.style_label_left, color=color.orange, textcolor=color.black, size=size.small)
-        if not na(regHigh)
-            label.new(labelBar, regHigh, "Market High", style=label.style_label_left, color=color.green, textcolor=color.white, size=size.small)
-        if not na(regLow)
-            label.new(labelBar, regLow, "Market Low", style=label.style_label_left, color=color.red, textcolor=color.white, size=size.small)
-        if not na(postHigh)
-            label.new(labelBar, postHigh, "Postmarket High", style=label.style_label_left, color=color.purple, textcolor=color.white, size=size.small)
-        if not na(postLow)
-            label.new(labelBar, postLow, "Postmarket Low", style=label.style_label_left, color=color.blue, textcolor=color.white, size=size.small)
+        // Draw ALL labels for previous day near each line
+        if not na(preHighLine)
+            label.new(realEndBar, preHigh, "Premarket High", style=label.style_label_left, color=color.yellow, textcolor=color.black, size=size.small)
+        if not na(preLowLine)
+            label.new(realEndBar, preLow, "Premarket Low", style=label.style_label_left, color=color.orange, textcolor=color.black, size=size.small)
+        if not na(regHighLine)
+            label.new(realEndBar, regHigh, "Market High", style=label.style_label_left, color=color.green, textcolor=color.white, size=size.small)
+        if not na(regLowLine)
+            label.new(realEndBar, regLow, "Market Low", style=label.style_label_left, color=color.red, textcolor=color.white, size=size.small)
+        if not na(postHigh) and not na(postHighBar)
+            label.new(realEndBar, postHigh, "Postmarket High", style=label.style_label_left, color=color.purple, textcolor=color.white, size=size.small)
+        if not na(postLow) and not na(postLowBar)
+            label.new(realEndBar, postLow, "Postmarket Low", style=label.style_label_left, color=color.blue, textcolor=color.white, size=size.small)
     
     // Reset post-market values after drawing
     postHigh := na
